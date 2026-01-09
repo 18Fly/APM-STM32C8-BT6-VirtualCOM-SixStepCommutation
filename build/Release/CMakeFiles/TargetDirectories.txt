@@ -1,0 +1,7 @@
+C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/CMakeFiles/APM32F103-VirtualCOM-SixStepCommutation-ESC.dir
+C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/CMakeFiles/edit_cache.dir
+C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/CMakeFiles/rebuild_cache.dir
+C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
+C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/cmake/stm32cubemx/CMakeFiles/USB_Device_Library.dir
+C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/cmake/stm32cubemx/CMakeFiles/edit_cache.dir
+C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/cmake/stm32cubemx/CMakeFiles/rebuild_cache.dir
