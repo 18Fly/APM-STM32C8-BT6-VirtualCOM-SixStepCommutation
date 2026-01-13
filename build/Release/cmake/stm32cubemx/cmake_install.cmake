@@ -1,4 +1,4 @@
-# Install script for directory: C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/cmake/stm32cubemx
+# Install script for directory: C:/Users/16567/Desktop/myproject/cmake/stm32cubemx
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -34,12 +34,12 @@ endif()
 
 # Set path to fallback-tool for dependency-resolution.
 if(NOT DEFINED CMAKE_OBJDUMP)
-  set(CMAKE_OBJDUMP "C:/Users/16567/.eide/tools/gcc_arm/bin/arm-none-eabi-objdump.exe")
+  set(CMAKE_OBJDUMP "D:/Program Files/Arm/GNU Toolchain mingw-w64-x86_64-arm-none-eabi/bin/arm-none-eabi-objdump.exe")
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)
-  file(WRITE "C:/Users/16567/Desktop/APM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release/cmake/stm32cubemx/install_local_manifest.txt"
+  file(WRITE "C:/Users/16567/Desktop/myproject/build/Release/cmake/stm32cubemx/install_local_manifest.txt"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

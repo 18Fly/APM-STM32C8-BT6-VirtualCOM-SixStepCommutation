@@ -67,14 +67,11 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     # Add user defined libraries
 )
 
-# 1. 确保定义了 objcopy 工具
-# 如果你的 toolchain 文件没自动设置 CMAKE_OBJCOPY，这里尝试查找
 if(NOT CMAKE_OBJCOPY)
     find_program(CMAKE_OBJCOPY NAMES arm-none-eabi-objcopy objcopy)
 endif()
 
-# 2. 添加生成 HEX 和 BIN 的命令
-# 注意：一定要把 ${PROJECT_NAME} 换成你实际的 add_executable 里的名字
+# 添加生成 HEX 和 BIN 的命令
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
     # 生成 HEX
     COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_PROJECT_NAME}.hex
