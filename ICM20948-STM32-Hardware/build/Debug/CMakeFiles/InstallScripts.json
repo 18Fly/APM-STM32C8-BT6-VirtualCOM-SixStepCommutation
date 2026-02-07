@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/16567/Desktop/myproject/ICM20948-STM32-Hardware/build/Debug/cmake_install.cmake",
+		"C:/Users/16567/Desktop/myproject/ICM20948-STM32-Hardware/build/Debug/cmake/stm32cubemx/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -9,31 +9,43 @@
  * Copyright (c) 2025 STMicroelectronics.
  * All rights reserved.
  *
- * This software is licensed under terms that can be found in the LICENSE file
+ * This software is licensed under terms that can be found in the LICENSE
+ file
  * in the root directory of this software component.
  * If no LICENSE file comes with this software, it is provided AS-IS.
  *
  ******************************************************************************
  */
 /* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
+/* Includes                                                                    \
+------------------------------------------------------------------*/           \
 #include "main.h"
 #include "adc.h"
 #include "gpio.h"
 #include "tim.h"
 #include "usb_device.h"
 
-/* Private includes ----------------------------------------------------------*/
+/* Private includes
+----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usbd_cdc_if.h"
 /* USER CODE END Includes */
 
-/* Private typedef -----------------------------------------------------------*/
+/* Private typedef
+-----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef struct {
+  float kp, ki, kd;
+  float integral;
+  float prev_error;
+  uint32_t last_ms;
+} PID_t;
 
 /* USER CODE END PTD */
 
-/* Private define ------------------------------------------------------------*/
+/* Private define
+------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
 // 电机极对数: 转子上永磁体总数量 / 2
@@ -133,11 +145,13 @@
 
 /* USER CODE END PD */
 
-/* Private macro -------------------------------------------------------------*/
+/* Private macro
+-------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 /* USER CODE END PM */
 
-/* Private variables ---------------------------------------------------------*/
+/* Private variables
+---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
 
@@ -371,26 +385,39 @@ const Tone Imperial_March[] = {{NOTE_A4, 500}, {NOTE_A4, 500}, {NOTE_A4, 500},
                                {REST, 150}};
 
 // 开环启动参数
-uint32_t step_delay = 3000; // 初始换相延时 (us) - 越小转越快
-
+uint32_t step_delay = 2000; // 初始换相延时 (us) - 越小转越快
 // 闭环控制参数
-volatile uint8_t run_mode = 0;               // 0: 开环启动, 1: 闭环运行
-volatile uint32_t bemf_threshold = 0;        // BEMF 过零阈值 (Vbus/2)
-volatile uint32_t commutation_timer = 0;     // 用于计算换相间隔
-volatile uint32_t zc_timestamp = 0;          // 过零点时刻
+volatile uint8_t run_mode = 0;               // 0: 开环启动, 1: 闭环运
 volatile uint32_t last_commutation_time = 0; // 上一次换相时刻
-volatile uint32_t period_time = 0;           // 换相周期 (60度电角度时间)
-uint32_t closed_loop_threshold = 1000;       // 闭环切换阈值
-// volatile uint32_t isrCounter;
+volatile uint32_t period_time = 0;           // 换相周期 (60度电角度时
+uint32_t closed_loop_threshold = 800;        // 闭环切换阈值
+PID_t speed_pid = {
+    .kp = 0.1f,   // 0.005
+    .ki = 0.056f, // 0.0004
+    .kd = 0.0f,
+    .integral = 0.0f,
+    .prev_error = 0.0f,
+};
+// 目标转速 & 占空比限制
+volatile uint32_t rpm = 0;            // 当前转速 (RPM)
+volatile uint32_t target_rpm = 12000; // 目标转速 (RPM)
+const uint32_t pwm_min = 300;
+const uint32_t pwm_max = 3100;
+// 过渡控制
+volatile uint8_t pid_enabled = 0; // 闭环切入后延时使能PID
+volatile uint32_t pid_enable_delay_ms = 50;
+
 /* USER CODE END PV */
 
-/* Private function prototypes -----------------------------------------------*/
+/* Private function prototypes
+   -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
-/* Private user code ---------------------------------------------------------*/
+/* Private user code
+---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
 // 当前换相步骤 (0-5)
@@ -410,10 +437,13 @@ void SixStep_Commutate(uint8_t step, uint32_t duty) {
   uint32_t ccer_mask = TIM_CCER_CC4E;
 
   switch (step) {
-  case 0:              // Step 1: U+ V- (W Float)
+  case 0:
+    // Step 1: U+ V- (W Float)
     TIM1->CCR1 = duty; // U: PWM
-    TIM1->CCR2 = 0;    // V: Low Side ON (CCR=0 -> CH2=0, CH2N=1)
-    TIM1->CCR3 = 0;    // W: Float (CCR无所谓，因为输出被禁用了)
+    TIM1->CCR2 = 0;
+    // V: Low Side ON (CCR=0 -> CH2=0, CH2N=1)
+    TIM1->CCR3 = 0;
+    // W: Float (CCR无所谓，因为输出被禁用了)
     ccer_mask |=
         (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE);
     break;
@@ -434,7 +464,8 @@ void SixStep_Commutate(uint8_t step, uint32_t duty) {
         (TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE);
     break;
 
-  case 3:           // Step 4: V+ U- (W Float)
+  case 3:
+    // Step 4: V+ U- (W Float)
     TIM1->CCR1 = 0; // U: Low Side ON
     TIM1->CCR2 = duty;
     TIM1->CCR3 = 0;
@@ -499,8 +530,10 @@ void Motor_Beep(uint16_t frequency, uint16_t duration_ms, uint16_t volume) {
   if (frequency == 0)
     return;
 
-  uint32_t period_us = 1000000 / frequency;           // 计算周期 (微秒)
-  uint32_t half_period = period_us / 2;               // 半周期
+  uint32_t period_us = 1000000 / frequency;
+  // 计算周期 (微秒)
+  uint32_t half_period = period_us / 2;
+  // 半周期
   uint32_t cycles = (duration_ms * 1000) / period_us; // 总震动次数
 
   for (uint32_t i = 0; i < cycles; i++) {
@@ -526,6 +559,7 @@ void Play_Song(const Tone *song, uint16_t length, uint16_t volume) {
     if (song[i].note == REST) {
       Motor_Stop();
       HAL_Delay(song[i].duration);
+
     } else {
       // 播放音符
       Motor_Beep(song[i].note, song[i].duration, volume);
@@ -534,6 +568,45 @@ void Play_Song(const Tone *song, uint16_t length, uint16_t volume) {
     HAL_Delay(20);
   }
   Motor_Stop();
+}
+
+// 目标转速软斜坡(避免开环->闭环突变)
+static uint32_t target_rpm_ramped = 0;
+static uint32_t ramp_last_ms = 0;
+static const uint32_t ramp_step_rpm = 100; // 每步提升的转速
+static const uint32_t ramp_period_ms = 20; // 斜坡周期
+
+// TIM3=500Hz 固定 dt=100Hz
+#define PID_DT_SEC (1.0f / 100.0f)
+
+/**
+ * @brief 速度环 PID 计算
+ * @param pid PID 控制器结构体指针
+ * @param target 目标转速 (RPM)
+ * @param actual 实际转速 (RPM)
+ * @return uint32_t 计算得到的 PWM 占空比
+ * @author 18Fly (iphoneios@88.com)
+ * @date 2026-02-07
+ */
+static uint32_t SpeedPID_Update(PID_t *pid, uint32_t target, uint32_t actual) {
+  float dt = PID_DT_SEC;
+  float error = (float)target - (float)actual;
+  // 积分
+  pid->integral += error * dt;
+  // 积分限幅
+  if (pid->integral > 30000.0f)
+    pid->integral = 30000.0f;
+  if (pid->integral < -30000.0f)
+    pid->integral = -30000.0f;
+  float derivative = (error - pid->prev_error) / dt;
+  pid->prev_error = error;
+  float out = pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
+  float duty = out;
+  if (duty < pwm_min)
+    duty = pwm_min;
+  if (duty > pwm_max)
+    duty = pwm_max;
+  return (uint32_t)duty;
 }
 
 /* USER CODE END 0 */
@@ -548,9 +621,11 @@ int main(void) {
 
   /* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
+  /* MCU
+       Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+  /* Reset of all peripherals, Initializes the Flash interface and the
+  Systick.
    */
   HAL_Init();
 
@@ -570,48 +645,37 @@ int main(void) {
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_USB_DEVICE_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-
   HAL_Delay(20000); // 上电等待 20 秒，方便调试时连接串口
-
   // 执行自校准，确保 ADC 有最佳的采样精度
   if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK) {
     // 如果这里报错，说明芯片的时钟或者 ADC 硬件有问题
     Error_Handler();
   }
-
   // 暴力清除所有可能遗留的标志位，以防万一
   __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_JEOC);
   __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_EOC);
-
   // ADC 注入组中断
   if (HAL_ADCEx_InjectedStart_IT(&hadc1) != HAL_OK) {
     Error_Handler();
   }
-
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-
-  // uint32_t test_pulse = 1800;                               // 3600 / 2 =
-  // 1800
-  // __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, test_pulse); // U相
-  // __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, test_pulse); // V相
-  // __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, test_pulse); // W相
-
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
-
   __HAL_TIM_MOE_ENABLE(&htim1);
+  HAL_TIM_Base_Start_IT(&htim3);
 
   // static char msg[256] = {0}; 调试的时候用
 
-  CDC_Transmit_FS((uint8_t *)"[MAIN] 播放自检音...\n", 27);
+  // CDC_Transmit_FS((uint8_t *)"[MAIN] 播放自检音...\n", 27);
 
   // // 哆 (Do) - 频率约 1046Hz
   // Motor_Beep(1046, 200, 200);
@@ -626,224 +690,90 @@ int main(void) {
   // Motor_Beep(2093, 400, 200);
 
   // 播放马里奥 (节奏快)
-  Play_Song(Mario_Theme, sizeof(Mario_Theme) / sizeof(Tone), 300);
+  // Play_Song(Mario_Theme, sizeof(Mario_Theme) / sizeof(Tone), 300);
 
   // 播放帝国进行曲 (节奏慢)
   // Play_Song(Imperial_March, sizeof(Imperial_March) / sizeof(Tone), 300);
 
-  HAL_Delay(3000); // 响完停顿3s
+  // HAL_Delay(3000); // 响完停顿3s
 
   // 强行把转子吸到 Step 5 的位置，防止起步乱跳
   SixStep_Commutate(5, 1000);
   CDC_Transmit_FS((uint8_t *)"[MAIN] 电机已归位\n", 24);
   HAL_Delay(50); // 等待 50ms 让转子归位
-  step = 0;      // 归位后从 0 开始
-  pwmDuty = 700; // 初始 PWM 占空比
+  step = 0;
+  pwmDuty = 500; // 初始 PWM 占空比
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   CDC_Transmit_FS((uint8_t *)"[MAIN] 开环启动中...\n", 27);
   while (1) {
-    // // 执行换相
-    // SixStep_Commutate(step, pwmDuty);
-
-    // // 步进
-    // step++;
-    // if (step >= 6)
-    //   step = 0;
-
-    // // 简单的开环加速逻辑
-    // static uint8_t speed_prescaler = 0;
-    // if (++speed_prescaler >= 2) // 每换相 6 次（转一圈）才加速一次
-    // {
-    //   speed_prescaler = 0;
-
-    //   // 只有没达到最高速时才加速
-    //   if (step_delay > min_delay)
-    //   {
-    //     step_delay -= 20; // 缓慢减小延时
-
-    //     // 速度越快(delay越小)，需要的电压(pwmDuty)越高
-    //     // 简单的线性补偿：防止高速时力矩不足
-    //     if (pwmDuty < 3500)
-    //     {
-    //       pwmDuty += 15;
-    //     }
-    //   }
-    // }
-
-    // // 延时 (模拟换相间隔)
-    // // 注意：HAL_Delay 是毫秒级，太慢了。这里用简单的空循环模拟微秒延时
-    // // 实际项目中应该用定时器中断来控制换相时间
-    // for (volatile int i = 0; i < step_delay * 5; i++)
-    // {
-    //   __NOP();
-    // }
-
     if (run_mode == 0) {
       SixStep_Commutate(step, pwmDuty);
       step++;
       if (step >= 6)
         step = 0;
-
-      // 简单的开环加速
-      static uint8_t speed_prescaler = 0;
-      if (++speed_prescaler >= 3) {
-        speed_prescaler = 0;
-        if (step_delay > 200)
-          step_delay -= 10; // 加速
-        if (pwmDuty < 3000)
-          pwmDuty += 5;
-        // 补电压
-        // 这里我调了几次可以设置大一点，防止过渡到闭环时转矩不够，影响反向电动势过零点检测
-      }
-      // 延时，尽量别放USB_CDC或者其他严重影响时序的代码在这里
-      for (volatile int i = 0; i < step_delay * 5; i++)
+      uint32_t start_tick = DWT->CYCCNT;
+      uint32_t wait_cycles = step_delay * 72;
+      while ((DWT->CYCCNT - start_tick) < wait_cycles) {
         __NOP();
+      }
+      static uint8_t speed_prescaler = 0;
+      if (++speed_prescaler >= 12) { // 每转一圈(6步)由程序调整一次速度
+        speed_prescaler = 0;
+        uint32_t decrement = 0;
+        if (step_delay > 2000)
+          decrement = 40; // 低速阶段：快速加速
+        else if (step_delay > 1200)
+          decrement = 20; // 中速阶段
+        else
+          decrement = 5;      // 切换前夕：微调，极度稳定
+        if (step_delay > 300) // 最小值保护，防止延时溢出
+          step_delay -= decrement;
+        // 补电压：速度越快 BEMF 越高，需要更大的占空比来维持电流
+        if (pwmDuty < 1500)
+          pwmDuty += 10;
+      }
 
       // 切入闭环中断模式
       if (step_delay <= closed_loop_threshold) {
         last_commutation_time = DWT->CYCCNT;
-        period_time = step_delay * 35;
-        run_mode = 1; // 开启中断里的换相逻辑
+        period_time = step_delay * 72;
+        run_mode = 1;
+        // 闭环切入过渡
+        pid_enabled = 0;
+        speed_pid.integral = 0.0f;
+        speed_pid.prev_error = 0.0f;
+        speed_pid.last_ms = HAL_GetTick();
+        if (speed_pid.ki > 0.0f) {
+          speed_pid.integral = (float)pwmDuty / speed_pid.ki;
+        } else {
+          speed_pid.integral = 0.0f;
+        }
+        ramp_last_ms = HAL_GetTick();
+        target_rpm_ramped = 3000;
+        rpm = 1500; // 估算一个初始值，避免突变
       }
-    }
-    //  闭环运行 (高速)
-    else {
-      // 简单的油门控制：一直加速到满油门
-      // if (pwmDuty < 3000) {
-      //   pwmDuty += 2;
-      //   HAL_Delay(3);
-      // } else {
-      //   static uint32_t last_print_time = 0;
-
-      //   // 超时检测 (堵转保护)
-      //   uint32_t now_dwt = DWT->CYCCNT;
-      //   // 72MHz下，36M计数约等于0.5秒
-      //   if ((now_dwt - last_commutation_time) > 36000000) {
-      //     period_time = 0; // 超过0.5秒没换相，强制归零
-      //   }
-
-      //   // 定时打印 (每200ms)
-      //   if (HAL_GetTick() - last_print_time > 200) {
-      //     last_print_time = HAL_GetTick();
-
-      //     if (period_time > 0) {
-      //       // RPM = (72,000,000 * 60) / (period_time * 6 * POLE_PAIRS)
-      //       // 简化公式: RPM = 720,000,000 / (period_time * POLE_PAIRS)
-      //       uint32_t rpm = 720000000 / (period_time * MOTOR_POLE_PAIRS);
-
-      //       char rpm_msg[64];
-      //       sprintf(rpm_msg, "[RPM] Speed: %lu | Duty: %lu\n", rpm, pwmDuty);
-      //       CDC_Transmit_FS((uint8_t *)rpm_msg, strlen(rpm_msg));
-      //     } else {
-      //       CDC_Transmit_FS((uint8_t *)"[RPM] Speed: 0 (STOP)\n", 22);
-      //     }
-      //   }
+    } else {
       static uint32_t last_print_time = 0;
-
-      // 超时检测 (堵转保护)
-      uint32_t now_dwt = DWT->CYCCNT;
-      // 72MHz下，36M计数约等于0.5秒
-      if ((now_dwt - last_commutation_time) > 36000000) {
-        period_time = 0; // 超过0.5秒没换相，强制归零
+      static uint32_t closed_loop_enter_ms = 0;
+      if (closed_loop_enter_ms == 0) {
+        closed_loop_enter_ms = HAL_GetTick();
       }
-
-      // 定时打印 (每200ms)
+      // 过渡延时后启用 PID
+      if (!pid_enabled &&
+          (HAL_GetTick() - closed_loop_enter_ms) > pid_enable_delay_ms) {
+        pid_enabled = 1;
+      }
       if (HAL_GetTick() - last_print_time > 200) {
         last_print_time = HAL_GetTick();
-
-        if (period_time > 0) {
-          // RPM = (72,000,000 * 60) / (period_time * 6 * POLE_PAIRS)
-          // 简化公式: RPM = 720,000,000 / (period_time * POLE_PAIRS)
-          uint32_t rpm = 720000000 / (period_time * MOTOR_POLE_PAIRS);
-
-          char rpm_msg[64];
-          sprintf(rpm_msg, "[RPM] Speed: %lu | Duty: %lu\n", rpm, pwmDuty);
-          CDC_Transmit_FS((uint8_t *)rpm_msg, strlen(rpm_msg));
-        } else {
-          CDC_Transmit_FS((uint8_t *)"[RPM] Speed: 0 (STOP)\n", 22);
-        }
+        char rpm_msg[64];
+        sprintf(rpm_msg, "%lu,%lu,%lu\n", rpm, target_rpm_ramped, pwmDuty);
+        CDC_Transmit_FS((uint8_t *)rpm_msg, strlen(rpm_msg));
       }
-      // else
-      // {
-      // static uint32_t last_print_time = 0;
-
-      // //  新增：超时检测
-      // // 获取当前 DWT 时间
-      // uint32_t now_dwt = DWT->CYCCNT;
-      // // 计算距离上次换相过去了多久
-      // uint32_t time_since_last_commutation = now_dwt - last_commutation_time;
-
-      // // 72MHz 主频下，36,000,000 约为 0.5 秒
-      // // 如果超过 0.5 秒没有换相，认为电机已停止
-      // if (time_since_last_commutation > 36000000)
-      // {
-      //   period_time = 0; // 强制归零
-      // }
-      // // ==
-
-      // if (HAL_GetTick() - last_print_time > 200)
-      // {
-      //   last_print_time = HAL_GetTick();
-
-      //   // 防止除以0
-      //   if (period_time > 0)
-      //   {
-      //     // 72MHz主频: 72,000,000
-      //     // 公式: RPM = (72000000 * 60) / (period_time * 6 * POLE_PAIRS)
-      //     // 简化: RPM = 720000000 / (period_time * POLE_PAIRS)
-      //     uint32_t rpm = 720000000 / (period_time * MOTOR_POLE_PAIRS);
-
-      //     char rpm_msg[64];
-      //     sprintf(rpm_msg, "[MAIN/Motor] 转速: %lu r/min | 占空比: %lu\n",
-      //     rpm, pwmDuty); CDC_Transmit_FS((uint8_t *)rpm_msg, strlen((const
-      //     char *)rpm_msg));
-      //   }
-      //   else
-      //   {
-      //     // 如果 period_time 为 0，打印 0 转速
-      //     char rpm_msg[64];
-      //     sprintf(rpm_msg, "[MAIN/Motor] 转速: 0 r/min | 占空比: %lu
-      //     (STOP)\n", pwmDuty); CDC_Transmit_FS((uint8_t *)rpm_msg,
-      //     strlen((const char *)rpm_msg));
-      //   }
-      // }
-      // }
-      // 如果电机卡死或停转（长时间没进中断），需要有保护逻辑切回开环
-      // 这里暂时省略，先跑通再说
     }
 
-    // 打印调试信息 (降低打印频率，否则会卡死电机)
-    // static uint32_t print_cnt = 0;
-    // if (print_cnt++ > 100)
-    // {
-    //   print_cnt = 0;
-    //   // 打印当前悬空相的电压，用于观察 BEMF
-    //   // 根据 step 判断哪一相悬空
-    //   uint32_t floating_adc = 0;
-    //   char phase_char = ' ';
-    //   if (step == 0 || step == 3)
-    //   {
-    //     floating_adc = adcW;
-    //     phase_char = 'W';
-    //   } // W float
-    //   if (step == 1 || step == 4)
-    //   {
-    //     floating_adc = adcV;
-    //     phase_char = 'V';
-    //   } // V float
-    //   if (step == 2 || step == 5)
-    //   {
-    //     floating_adc = adcU;
-    //     phase_char = 'U';
-    //   } // U float
-
-    //   sprintf(msg, "Step:%d | Delay:%lu | Float(%c):%lu\n", step, step_delay,
-    //   phase_char, floating_adc); CDC_Transmit_FS((uint8_t *)msg,
-    //   strlen((const char *)msg));
-    // }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -899,6 +829,52 @@ void SystemClock_Config(void) {
 }
 
 /* USER CODE BEGIN 4 */
+
+// RPM 一阶低通系数
+#define RPM_LPF_ALPHA 0.05f // 稍微降低一点，让曲线更平滑
+static float rpm_lpf = 0.0f;
+static uint8_t pid_prescaler = 0;
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if (htim->Instance == TIM3) {
+    if (run_mode == 1) {
+      float rpm_raw = 0.0f;
+      if (period_time > 0) {
+        rpm_raw =
+            (72000000.0f * 10.0f) / ((float)period_time * MOTOR_POLE_PAIRS);
+      }
+      if (rpm_lpf == 0.0f)
+        rpm_lpf = rpm_raw;
+      else
+        rpm_lpf += RPM_LPF_ALPHA * (rpm_raw - rpm_lpf);
+      rpm = (uint32_t)rpm_lpf;
+      if (pid_enabled) {
+        pid_prescaler++;
+        if (pid_prescaler >= 5) // 100Hz
+          pid_prescaler = 0;
+        if (HAL_GetTick() - ramp_last_ms >= ramp_period_ms) {
+          ramp_last_ms = HAL_GetTick();
+          if (target_rpm_ramped < target_rpm) {
+            target_rpm_ramped += ramp_step_rpm;
+            if (target_rpm_ramped > target_rpm)
+              target_rpm_ramped = target_rpm;
+          } else if (target_rpm_ramped > target_rpm) {
+            target_rpm_ramped -= ramp_step_rpm;
+            if (target_rpm_ramped < target_rpm)
+              target_rpm_ramped = target_rpm;
+          }
+        }
+        pwmDuty =
+            SpeedPID_Update(&speed_pid, (float)target_rpm_ramped, (float)rpm);
+      } else {
+        if (step_delay > 0) {
+          float open_loop_rpm =
+              60000000.0f / ((float)step_delay * MOTOR_POLE_PAIRS);
+          rpm_lpf = open_loop_rpm;
+        }
+      }
+    }
+  }
+}
 
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
   if (hadc->Instance == ADC1) {
@@ -990,13 +966,11 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
           // 每 6 步（一圈电角度）更新一次全局 period_time
           if (step_counter >= 6) {
             uint32_t avg_time = sum_delta_time / 6;
-
             // 低通滤波：使数值变化更平滑
             if (period_time == 0)
               period_time = avg_time;
             else
-              period_time = (period_time * 3 + avg_time) / 4;
-
+              period_time = (period_time + avg_time) >> 1;
             sum_delta_time = 0;
             step_counter = 0;
           }
@@ -1009,7 +983,6 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
         }
       }
     }
-
     // 统一清除标志位 (必须执行)
     hadc->Instance->SR = ~(ADC_SR_JEOC);
     hadc->Instance->CR1 |= ADC_CR1_JEOCIE;
@@ -1024,7 +997,8 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
  */
 void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* User can add his own implementation to report the HAL error return state
+   */
   __disable_irq();
   while (1) {
   }
@@ -1041,8 +1015,8 @@ void Error_Handler(void) {
 void assert_failed(uint8_t *file, uint32_t line) {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line
-     number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
-     line) */
+       number, ex: printf("Wrong parameters value: file %s on line %d\r\n",
+  file,      line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

@@ -7,7 +7,7 @@
 				{
 					"directoryIndex" : 1,
 					"id" : "stm32cubemx::@768a070a0fe75716b479",
-					"jsonFile" : "target-stm32cubemx-Release-5e0d86e54543ac1a1c41.json",
+					"jsonFile" : "target-stm32cubemx-Debug-33a027720ca19034679b.json",
 					"name" : "stm32cubemx",
 					"projectIndex" : 0
 				}
@@ -20,7 +20,7 @@
 					[
 						1
 					],
-					"jsonFile" : "directory-.-Release-f6f22219c74102c3da70.json",
+					"jsonFile" : "directory-.-Debug-f6f22219c74102c3da70.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.22"
@@ -38,7 +38,7 @@
 						0
 					],
 					"build" : "cmake/stm32cubemx",
-					"jsonFile" : "directory-cmake.stm32cubemx-Release-8f353d194551f741f997.json",
+					"jsonFile" : "directory-cmake.stm32cubemx-Debug-8f353d194551f741f997.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.22"
@@ -53,7 +53,7 @@
 					]
 				}
 			],
-			"name" : "Release",
+			"name" : "Debug",
 			"projects" : 
 			[
 				{
@@ -66,7 +66,7 @@
 						0,
 						1
 					],
-					"name" : "APM32F103-VirtualCOM-SixStepCommutation-ESC",
+					"name" : "ICM20948-STM32-Hardware",
 					"targetIndexes" : 
 					[
 						0,
@@ -79,22 +79,22 @@
 			[
 				{
 					"directoryIndex" : 0,
-					"id" : "APM32F103-VirtualCOM-SixStepCommutation-ESC::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-APM32F103-VirtualCOM-SixStepCommutation-ESC-Release-204286809977e5012710.json",
-					"name" : "APM32F103-VirtualCOM-SixStepCommutation-ESC",
+					"id" : "ICM20948-STM32-Hardware::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ICM20948-STM32-Hardware-Debug-bdc0fa21486221dc8300.json",
+					"name" : "ICM20948-STM32-Hardware",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 1,
 					"id" : "STM32_Drivers::@768a070a0fe75716b479",
-					"jsonFile" : "target-STM32_Drivers-Release-fa833f164fe6cc3d2a99.json",
+					"jsonFile" : "target-STM32_Drivers-Debug-2cb9bfdc3dc50e66bf60.json",
 					"name" : "STM32_Drivers",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 1,
 					"id" : "USB_Device_Library::@768a070a0fe75716b479",
-					"jsonFile" : "target-USB_Device_Library-Release-96100252efb0d3dabdd4.json",
+					"jsonFile" : "target-USB_Device_Library-Debug-fa78564646df6786f4bb.json",
 					"name" : "USB_Device_Library",
 					"projectIndex" : 0
 				}
@@ -104,8 +104,8 @@
 	"kind" : "codemodel",
 	"paths" : 
 	{
-		"build" : "C:/Users/16567/Desktop/myproject/build/Release",
-		"source" : "C:/Users/16567/Desktop/myproject"
+		"build" : "C:/Users/16567/Desktop/myproject/ICM20948-STM32-Hardware/build/Debug",
+		"source" : "C:/Users/16567/Desktop/myproject/ICM20948-STM32-Hardware"
 	},
 	"version" : 
 	{
