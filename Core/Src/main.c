@@ -47,7 +47,7 @@ typedef struct {
 // 电机极对数: 转子上永磁体总数量 / 2
 #define MOTOR_POLE_PAIRS 7
 
-#define DUTYSET 700
+#define DUTYSET 500
 
 // 定义音符频率 (Hz)
 #define NOTE_B0 31
@@ -416,15 +416,13 @@ uint32_t time_since_commutation;
 uint32_t blanking_time;
 
 uint32_t delta_time;
-uint32_t avg_time;
 
 // 当前换相步骤 (0-5)
 uint8_t step = 0;
 // 期望的 PWM 占空比
 uint32_t pwmDuty = 200;
 
-// uint32_t wait_cycles;
-// uint32_t start_wait;
+// uint8_t comm_advance_deg = 20;
 
 /* USER CODE END PV */
 
@@ -644,7 +642,7 @@ int main(void) {
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_USB_DEVICE_Init();
-  MX_TIM3_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0;
@@ -670,7 +668,6 @@ int main(void) {
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
   __HAL_TIM_MOE_ENABLE(&htim1);
-  HAL_TIM_Base_Start_IT(&htim3);
 
   // static char msg[256] = {0}; 调试的时候用
 
@@ -742,7 +739,6 @@ int main(void) {
         period_time = step_delay * 72;
         run_mode = 1;
         pwmDuty = DUTYSET;
-        blanking_time = period_time / 3;
         // 闭环切入过渡
         // pid_enabled = 0;
         // speed_pid.integral = 0.0f;
@@ -762,23 +758,26 @@ int main(void) {
       static uint32_t change_pwm_time = 0;
       static uint8_t signs = 0;
       if (HAL_GetTick() - last_print_time > 200) {
+        rpm = period_time
+                  ? (72000000UL * 10UL / (period_time * MOTOR_POLE_PAIRS))
+                  : rpm;
         last_print_time = HAL_GetTick();
         char rpm_msg[64];
-        sprintf(rpm_msg, "%lu,%lu\n", rpm, pwmDuty);
+        sprintf(rpm_msg, "%lu,%lu,%lu\n", rpm, pwmDuty, period_time);
         CDC_Transmit_FS((uint8_t *)rpm_msg, strlen(rpm_msg));
       }
-      if (HAL_GetTick() - change_pwm_time > 500) {
+      if (HAL_GetTick() - change_pwm_time > 30) {
         change_pwm_time = HAL_GetTick();
-        if (pwmDuty > 2800) {
+        if (pwmDuty > 1300) {
           signs = 1;
-        } else if (pwmDuty < 1000) {
+        } else if (pwmDuty < 500) {
           signs = 0;
         }
 
         if (!signs)
-          pwmDuty += 100;
+          pwmDuty += 1;
         else
-          pwmDuty -= 100;
+          pwmDuty -= 1;
       }
     }
 
@@ -838,81 +837,41 @@ void SystemClock_Config(void) {
 
 /* USER CODE BEGIN 4 */
 
-// RPM 一阶低通系数
-#define RPM_LPF_ALPHA 0.1f // 稍微降低一点，让曲线更平滑
-float rpm_lpf = 0.0f;
-// static uint8_t pid_prescaler = 0;
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  if (htim->Instance == TIM3) {
-    if (run_mode == 1) {
-      float rpm_raw = 0.0f;
-      if (period_time > 0) {
-        rpm_raw =
-            (72000000.0f * 10.0f) / ((float)period_time * MOTOR_POLE_PAIRS);
-      }
-      if (rpm_lpf == 0.0f)
-        rpm_lpf = rpm_raw;
-      else
-        rpm_lpf += RPM_LPF_ALPHA * (rpm_raw - rpm_lpf);
-      rpm = (uint32_t)rpm_lpf;
-      // if (pid_enabled) {
-      //   pid_prescaler++;
-      //   if (pid_prescaler >= 5) // 100Hz
-      //     pid_prescaler = 0;
-      //   if (HAL_GetTick() - ramp_last_ms >= ramp_period_ms) {
-      //     ramp_last_ms = HAL_GetTick();
-      //     if (target_rpm_ramped < target_rpm) {
-      //       target_rpm_ramped += ramp_step_rpm;
-      //       if (target_rpm_ramped > target_rpm)
-      //         target_rpm_ramped = target_rpm;
-      //     } else if (target_rpm_ramped > target_rpm) {
-      //       target_rpm_ramped -= ramp_step_rpm;
-      //       if (target_rpm_ramped < target_rpm)
-      //         target_rpm_ramped = target_rpm;
-      //     }
-      //   }
-      //   pwmDuty =
-      //       SpeedPID_Update(&speed_pid, (float)target_rpm_ramped,
-      //       (float)rpm);
-      // } else {
-      //   if (step_delay > 0) {
-      //     float open_loop_rpm =
-      //         60000000.0f / ((float)step_delay * MOTOR_POLE_PAIRS);
-      //     rpm_lpf = open_loop_rpm;
-      //   }
-      // }
-    }
-  }
-}
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {}
 
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
   if (hadc->Instance == ADC1) {
-    // 前两次采样结果依次后移
-    theFirstAdcU = theSecondAdcU;
-    theFirstAdcV = theSecondAdcV;
-    theFirstAdcW = theSecondAdcW;
+    // 采样结果平滑处理：三次移动平均
+    // theFirstAdcU = theSecondAdcU;
+    // theFirstAdcV = theSecondAdcV;
+    // theFirstAdcW = theSecondAdcW;
 
-    theSecondAdcU = currentAdcU;
-    theSecondAdcV = currentAdcV;
-    theSecondAdcW = currentAdcW;
+    // theSecondAdcU = currentAdcU;
+    // theSecondAdcV = currentAdcV;
+    // theSecondAdcW = currentAdcW;
 
-    currentAdcU = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
-    currentAdcV = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
-    currentAdcW = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);
+    // currentAdcU = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
+    // currentAdcV = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
+    // currentAdcW = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);
 
-    adcU = (theFirstAdcU + theSecondAdcU + currentAdcU) / 3;
-    adcV = (theFirstAdcV + theSecondAdcV + currentAdcV) / 3;
-    adcW = (theFirstAdcW + theSecondAdcW + currentAdcW) / 3;
+    // adcU = (theFirstAdcU + theSecondAdcU + currentAdcU) / 3;
+    // adcV = (theFirstAdcV + theSecondAdcV + currentAdcV) / 3;
+    // adcW = (theFirstAdcW + theSecondAdcW + currentAdcW) / 3;
 
-    // adcU = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
-    // adcV = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
-    // adcW = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);
+    adcU = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_1);
+    adcV = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_2);
+    adcW = HAL_ADCEx_InjectedGetValue(hadc, ADC_INJECTED_RANK_3);
 
     if (run_mode == 1) // 只有在闭环模式下才检测
     {
-      //  消磁屏蔽逻辑
+      // 消磁屏蔽逻辑
       time_since_commutation = DWT->CYCCNT - last_commutation_time;
-      blanking_time = period_time / 3;
+      // 动态磁屏蔽逻辑
+      if (period_time > 12000) {
+        blanking_time = period_time / 4;
+      } else {
+        blanking_time = period_time / 8;
+      }
 
       // 只有过了屏蔽期，才进行过零检测
       if (time_since_commutation >= blanking_time) {
@@ -950,23 +909,10 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
           break;
         }
 
-        // if (pwmDuty < 900) {
-        //   zc_filter_target = 2;
-        // } else {
-        //   zc_filter_target = 1;
-        // }
-
-        // if (zc_detected) {
-        //   zc_filter_cnt++;
-        // } else {
-        //   zc_filter_cnt = 0;
-        // }
-
         if (zc_detected) {
-          // zc_filter_cnt = 0;
           // 转速计算 (6步平均法)
-          delta_time = DWT->CYCCNT - last_commutation_time;
-          last_commutation_time = DWT->CYCCNT;
+          uint32_t zc_time = DWT->CYCCNT;
+          delta_time = zc_time - last_commutation_time;
 
           if (delta_time > 3600 && delta_time < 720000) {
             sum_delta_time += delta_time;
@@ -978,42 +924,12 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
 
           // 每 6 步（一圈电角度）更新一次全局 period_time
           if (step_counter >= 6) {
-            avg_time = sum_delta_time / 6;
-            // 低通滤波：使数值变化更平滑
-            if (period_time == 0)
-              period_time = avg_time;
-            else
-              period_time = (period_time + avg_time) >> 1;
+            period_time = sum_delta_time / 6;
             sum_delta_time = 0;
             step_counter = 0;
           }
 
-          // wait_cycles = delta_time >> 1;
-
-          // uint32_t wait_cycles;
-
-          // if (period_time > 100000) {
-          //   wait_cycles = delta_time;
-          // } else if (period_time > 60000) {
-          //   wait_cycles = (delta_time * 4) / 5;
-          // } else if (period_time > 30000) {
-          //   wait_cycles = (delta_time * 2) / 3;
-          // } else {
-          //   wait_cycles = delta_time >> 1;
-          // }
-
-          // if (wait_cycles > 36000) {
-          //   wait_cycles = 36000;
-          // }
-
-          // if (wait_cycles > 0) {
-          //   start_wait = DWT->CYCCNT;
-          //   while ((DWT->CYCCNT - start_wait) < wait_cycles) {
-          //     __NOP();
-          //   }
-          // }
-
-          //  执行换相
+          last_commutation_time = zc_time;
           step++;
           if (step >= 6)
             step = 0;
@@ -1021,8 +937,8 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc) {
         }
       }
     }
-    // 统一清除标志位 (必须执行)
     hadc->Instance->SR = ~(ADC_SR_JEOC);
+    // 重新使能注入转换完成中断
     hadc->Instance->CR1 |= ADC_CR1_JEOCIE;
   }
 }

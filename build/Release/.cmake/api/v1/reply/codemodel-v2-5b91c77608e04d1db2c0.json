@@ -80,21 +80,21 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "APM32F103-VirtualCOM-SixStepCommutation-ESC::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-APM32F103-VirtualCOM-SixStepCommutation-ESC-Release-efe47a2f82837aa4ee25.json",
+					"jsonFile" : "target-APM32F103-VirtualCOM-SixStepCommutation-ESC-Release-edbb9e7cfee3a8d4afb4.json",
 					"name" : "APM32F103-VirtualCOM-SixStepCommutation-ESC",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 1,
 					"id" : "STM32_Drivers::@768a070a0fe75716b479",
-					"jsonFile" : "target-STM32_Drivers-Release-fa833f164fe6cc3d2a99.json",
+					"jsonFile" : "target-STM32_Drivers-Release-275bf4a84515225a3976.json",
 					"name" : "STM32_Drivers",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 1,
 					"id" : "USB_Device_Library::@768a070a0fe75716b479",
-					"jsonFile" : "target-USB_Device_Library-Release-96100252efb0d3dabdd4.json",
+					"jsonFile" : "target-USB_Device_Library-Release-a7cabe83e5654c7d93f9.json",
 					"name" : "USB_Device_Library",
 					"projectIndex" : 0
 				}
@@ -104,8 +104,8 @@
 	"kind" : "codemodel",
 	"paths" : 
 	{
-		"build" : "C:/Users/16567/Desktop/myproject/build/Release",
-		"source" : "C:/Users/16567/Desktop/myproject"
+		"build" : "C:/Users/16567/Desktop/STM32F103-VirtualCOM-SixStepCommutation-ESC/build/Release",
+		"source" : "C:/Users/16567/Desktop/STM32F103-VirtualCOM-SixStepCommutation-ESC"
 	},
 	"version" : 
 	{
